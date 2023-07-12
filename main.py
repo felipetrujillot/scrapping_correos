@@ -6,9 +6,10 @@ import time
 from seleniumwire.utils import decode
 import json
 import requests
+from unidecode import unidecode
 
 
-def seleniumStart(nombreComuna, combinacion):
+def seleniumStart(nombreComuna):
     """
     Inicializa el driver de selenium
     Se conecta a correos, busca una comuna e inserta una combinación aleatoria
@@ -19,52 +20,33 @@ def seleniumStart(nombreComuna, combinacion):
     """
     # Inicializa selenium
     driver = webdriver.Chrome()
-    driver.get("https://www.correos.cl")
-
-    # Pestaña de código postal
-    elem = driver.find_element(By.CLASS_NAME, "codigopost_tab_cont")
-    elem.click()
+    driver.get("https://appswls.entel.cl/ContratacionOnLineHogar/inicioContratacion?origen=cobertura&amp;c2=011&amp;_ga=2.153227583.663995988.1689107334-2036770318.1685128516")
 
     # Input para comuna
-    inputComuna = driver.find_element(By.ID, 'comuna_domicilio')
-    inputComuna.send_keys(nombreComuna)
+    inputComuna = driver.find_element(By.ID, 'inputSelCom')
+    inputComuna.send_keys(nombreFiltrado(nombreComuna))
 
-    # La búsqueda es asíncrona, por lo que no siempre encuentra el primer resultado a tiempo
-    time.sleep(1)
-    # Validamos que el primer resultado de búsqueda sea el correcto
-    # Caso contrario busca los otros hasta encontrar coincidencia
-    comunaSeleccionada = driver.find_element(
-        By.ID, 'search-comuna-domicilio-0')
-    if (comunaSeleccionada.text != nombreComuna):
-        comunaSeleccionada = driver.find_element(
-            By.ID, 'search-comuna-domicilio-1')
-        if (comunaSeleccionada.text != nombreComuna):
-            comunaSeleccionada = driver.find_element(
-                By.ID, 'search-comuna-domicilio-2')
-            if (comunaSeleccionada.text != nombreComuna):
-                comunaSeleccionada = driver.find_element(
-                    By.ID, 'search-comuna-domicilio-3')
-    comunaSeleccionada.click()
+    time.sleep(4)
 
-    # La búsqueda comienza en los tres carácteres, por lo que el mismo problema que las comunas no ocurre
-    inputCalle = driver.find_element(By.ID, 'calle_domicilio')
-    inputCalle.send_keys(combinacion)
-    time.sleep(1)
+    clickComuna = driver.find_element(By.XPATH, '/html/body/ul[1]/li/div')
+    clickComuna.click()
 
-    # Buscamos los resultados de la request y buscamos la request de dirección
+    time.sleep(3)
+
     for request in driver.requests:
-        if (request.url.__contains__('obtenerDirecciones')):
+        if (request.url.__contains__('obtenerCalles')):
             body = decode(request.response.body, request.response.headers.get(
                 'Content-Encoding', 'identity'))
-            res = json.loads(body.decode('utf-8'))
-            postInfo(nombreComuna, combinacion, res)
-            print(res['listado'])
-            # for nombre in res['listado']:
-            #    print(nombre['nombre'])
+
+            res = json.loads(body.decode('utf-8', errors='ignore'))
+            print(res['result'])
+            postInfo(res['result'], nombreComuna)
+
+    time.sleep(5)
     driver.close()
 
 
-def postInfo(nombreComuna, combinacion, jsonListado):
+def postInfo(jsonListado, nombreComuna):
     """
     Envia post con el listado con la API
     :param nombreComuna
@@ -72,11 +54,11 @@ def postInfo(nombreComuna, combinacion, jsonListado):
     :param jsonListado
     """
     # URL of the API endpoint
-    url = 'https://sdx_laravel.test/api/linkcloud/direccion'
+    url = 'https://sdx_laravel.test/api/direccion'
     # Request payload (data to send)
     payload = {
-        'key1': 'value1',
-        'key2': 'value2'
+        'data': jsonListado,
+        'comuna': nombreComuna
     }
     # Send POST request
     response = requests.post(url, json=payload)
@@ -92,27 +74,28 @@ def postInfo(nombreComuna, combinacion, jsonListado):
     return
 
 
-def generar_combinaciones():
+def getComunasRestantes():
     """
-    Genera todas las combinaciones aleatorias de hasta tres dígitos
-    :return: array
+    Envia get a la api para obtener un array de comunas restantes
     """
-    combinaciones = []
-    # Recorre todos los números de 0 a 999
-    for numero in 'ÁABCDEÉFGHIÍJKLMNÑOÓPQRSTUÚVWXYZ0123456789 ':
-        # Genera todas las combinaciones de letras y números
-        for letra1 in 'ÁABCDEÉFGHIÍJKLMNÑOÓPQRSTUÚVWXYZ0123456789 ':
-            for letra2 in 'ÁABCDEÉFGHIÍJKLMNÑOÓPQRSTUÚVWXYZ0123456789 ':
-                combinacion = letra1 + letra2 + numero
-                combinaciones.append(combinacion)
 
-    return combinaciones
+    url = 'https://sdx_laravel.test/api/direcciones_restantes'
+
+    response = requests.get(url)
+    res = json.loads(response.content.decode('utf-8'))
+
+    return res['data']
+
+
+def nombreFiltrado(nombre):
+
+    name = unidecode(nombre)
+    return str.upper(name)
 
 
 if __name__ == "__main__":
     """
     Inicia sistema
     """
-    res = generar_combinaciones()
-    for combinacion in res:
-        seleniumStart('PUENTE ALTO', combinacion)
+    for com in getComunasRestantes():
+        seleniumStart(com)
